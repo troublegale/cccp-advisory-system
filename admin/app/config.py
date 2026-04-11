@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     collection_name: str = "info_chunks"
     chunk_size: int = 300
     chunk_overlap: int = 100
-    info_file_path: str = "/app/info.md"
+    knowledge_dir: str = "/app/knowledge"
 
     model_config = {"env_prefix": "RAG_"}
 

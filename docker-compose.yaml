@@ -20,7 +20,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./admin/info.md:/app/info.md:ro
+      - ./admin/knowledge:/app/knowledge:ro
     depends_on:
       - qdrant
       - ollama
