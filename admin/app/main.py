@@ -7,8 +7,7 @@ from fastapi import FastAPI, HTTPException
 
 from app.config import settings
 from app.ingestion import ingest
-from app.models import AskRequest, AskResponse, IngestResponse
-from app.retrieval import ask
+from app.models import IngestResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,18 +56,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="RAG Prototype", lifespan=lifespan)
-
-
-@app.post("/ask", response_model=AskResponse)
-def ask_endpoint(request: AskRequest):
-    """Answer a question using the RAG pipeline."""
-    try:
-        answer = ask(request.question)
-        return AskResponse(answer=answer)
-    except Exception as e:
-        logger.exception("Error processing question")
-        raise HTTPException(status_code=500, detail=str(e))
+app = FastAPI(title="RAG Admin Service", lifespan=lifespan)
 
 
 @app.post("/ingest", response_model=IngestResponse)

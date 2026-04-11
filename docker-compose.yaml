@@ -12,15 +12,27 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-      - ./scripts/ollama-entrypoint.sh:/entrypoint.sh
+      - ./admin/scripts/ollama-entrypoint.sh:/entrypoint.sh
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
 
-  app:
-    build: .
+  admin:
+    build: ./admin
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./admin/info.md:/app/info.md:ro
+    depends_on:
+      - qdrant
+      - ollama
+    environment:
+      - RAG_OLLAMA_BASE_URL=http://ollama:11434
+      - RAG_QDRANT_HOST=qdrant
+    restart: on-failure
+
+  query:
+    build: ./query
     ports:
       - "8000:8000"
-    volumes:
-      - ./info.md:/app/info.md:ro
     depends_on:
       - qdrant
       - ollama
