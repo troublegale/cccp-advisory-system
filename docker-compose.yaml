@@ -1,4 +1,9 @@
 services:
+  admin-frontend:
+    build: ./admin-frontend
+    expose:
+      - "3000"
+
   nginx:
     image: nginx:latest
     ports:
@@ -8,6 +13,7 @@ services:
     depends_on:
       - admin
       - query
+      - admin-frontend
 
   postgres:
     image: postgres:16
@@ -15,8 +21,8 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: admin_db
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -26,23 +32,23 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    expose:
+      - "9000"
+      - "9001"
     volumes:
       - minio_data:/data
 
   qdrant:
     image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
+    expose:
+      - "6333"
     volumes:
       - qdrant_data:/qdrant/storage
 
   ollama:
     image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
+    expose:
+      - "11434"
     volumes:
       - ollama_data:/root/.ollama
       - ./admin/scripts/ollama-entrypoint.sh:/entrypoint.sh

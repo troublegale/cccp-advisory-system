@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/components/activeversionmodal.tsx","./src/components/allversionsmodal.tsx","./src/components/modal.tsx","./src/components/uploadmodal.tsx","./src/components/versiontable.tsx"],"version":"5.8.3"}
