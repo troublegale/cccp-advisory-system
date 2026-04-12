@@ -52,7 +52,7 @@ export default function App() {
           textAlign: "center",
           marginBottom: 36,
           paddingBottom: 28,
-          borderBottom: "2px solid var(--border)",
+          borderBottom: "2px solid var(--warm-300)",
         }}
       >
         <h1
@@ -70,6 +70,8 @@ export default function App() {
             fontSize: "0.95rem",
             color: "var(--text-secondary)",
             fontWeight: 500,
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.05em",
           }}
         >
           ДЮКЦ ИТМО
@@ -77,41 +79,48 @@ export default function App() {
       </header>
 
       {/* Action buttons */}
-      <section
-        style={{
-          background: "#fff",
-          borderRadius: "var(--radius)",
-          padding: 24,
-          boxShadow: "0 2px 12px var(--shadow)",
-          marginBottom: 20,
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {actions.map((a) => (
-            <div
-              key={a.key}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-              }}
-            >
-              <button
-                className="btn btn-primary"
-                style={{ minWidth: 180, flexShrink: 0 }}
-                onClick={() => setModal(a.key)}
-              >
-                {a.label}
-              </button>
-              <span
+      <section style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {actions.map((a, i) => (
+            <div key={a.key}>
+              <div
                 style={{
-                  fontSize: "0.85rem",
-                  color: "var(--text-secondary)",
-                  lineHeight: 1.4,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "16px 0",
                 }}
               >
-                {a.description}
-              </span>
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    minWidth: 210,
+                    flexShrink: 0,
+                    padding: "14px 24px",
+                    fontSize: "1rem",
+                  }}
+                  onClick={() => setModal(a.key)}
+                >
+                  {a.label}
+                </button>
+                <span
+                  style={{
+                    fontSize: "0.95rem",
+                    color: "var(--text-secondary)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {a.description}
+                </span>
+              </div>
+              {i < actions.length - 1 && (
+                <hr
+                  style={{
+                    border: "none",
+                    borderTop: "2px solid var(--warm-300)",
+                  }}
+                />
+              )}
             </div>
           ))}
         </div>

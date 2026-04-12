@@ -64,7 +64,7 @@ export default function UploadModal({ onClose, onResult }: Props) {
             <input
               className="form-input"
               type="text"
-              placeholder="Например: обновлены описания продуктов"
+              placeholder="Описание новой версии..."
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />

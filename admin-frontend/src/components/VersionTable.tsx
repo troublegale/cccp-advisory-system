@@ -54,6 +54,38 @@ function FilesCell({ version }: { version: KBVersion }) {
   );
 }
 
+const COMMENT_TRUNCATE = 40;
+
+function CommentCell({ comment }: { comment: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!comment) return <span>—</span>;
+
+  const isLong = comment.length > COMMENT_TRUNCATE;
+
+  if (!isLong) return <span>{comment}</span>;
+
+  return (
+    <div className="comment-cell">
+      {expanded ? (
+        <div>
+          <span className="comment-text-full">{comment}</span>{" "}
+          <button className="comment-toggle" onClick={() => setExpanded(false)}>
+            свернуть
+          </button>
+        </div>
+      ) : (
+        <div className="comment-short">
+          <span className="comment-text-truncated">{comment}</span>
+          <button className="comment-toggle" onClick={() => setExpanded(true)}>
+            ещё
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   versions: KBVersion[];
   showActions?: boolean;
@@ -75,7 +107,7 @@ export default function VersionTable({
     <table className="version-table">
       <thead>
         <tr>
-          <th>#</th>
+          <th>№</th>
           <th>Статус</th>
           <th>Дата</th>
           <th>Файлы</th>
@@ -90,40 +122,36 @@ export default function VersionTable({
             <td>
               <StatusBadge status={v.status} />
             </td>
-            <td>{formatDate(v.created_at)}</td>
+            <td className="col-date">{formatDate(v.created_at)}</td>
             <td>
               <FilesCell version={v} />
             </td>
-            <td>{v.comment ?? "—"}</td>
+            <td>
+              <CommentCell comment={v.comment} />
+            </td>
             {showActions && (
               <td>
                 <div className="actions-cell">
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={v.status === "active"}
-                    onClick={() => onActivate?.(v)}
-                    title={
-                      v.status === "active"
-                        ? "Уже активна"
-                        : "Сделать активной"
-                    }
-                  >
-                    Активировать
-                  </button>
-                  <button
-                    className="btn btn-danger btn-sm"
-                    disabled={v.status === "active"}
-                    onClick={() => onDelete?.(v)}
-                    title={
-                      v.status === "active"
-                        ? "Нельзя удалить активную"
-                        : "Удалить версию"
-                    }
-                  >
-                    Удалить
-                  </button>
+                  {v.status !== "active" && (
+                    <>
+                      <button
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={() => onActivate?.(v)}
+                        title="Сделать активной"
+                      >
+                        Активировать
+                      </button>
+                      <button
+                        className="btn btn-outline-danger btn-sm"
+                        onClick={() => onDelete?.(v)}
+                        title="Удалить версию"
+                      >
+                        Удалить
+                      </button>
+                    </>
+                  )}
                   <a
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-outline-secondary btn-sm"
                     href={archiveUrl(v.version_num)}
                     download
                   >
