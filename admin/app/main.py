@@ -3,11 +3,12 @@ import time
 from contextlib import asynccontextmanager
 
 import ollama
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from app.config import settings
-from app.ingestion import ingest
-from app.models import IngestResponse
+from app.database import Base, engine
+from app.storage import ensure_bucket_exists, get_minio_client
+from app.router import router as kb_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,28 +44,26 @@ def wait_for_ollama_models() -> None:
     raise RuntimeError("Ollama models did not become available in time")
 
 
+def init_infrastructure() -> None:
+    """Create database tables and MinIO bucket."""
+    # Import models so Base.metadata knows about them
+    import app.db_models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables ensured")
+
+    s3 = get_minio_client()
+    ensure_bucket_exists(s3, settings.minio_kb_bucket)
+    logger.info("MinIO bucket '%s' ensured", settings.minio_kb_bucket)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Wait for Ollama models, then run ingestion on startup."""
+    """Initialize infrastructure and wait for Ollama models on startup."""
+    init_infrastructure()
     wait_for_ollama_models()
-    logger.info("Starting ingestion pipeline...")
-    try:
-        count = ingest()
-        logger.info("Ingestion complete: %d chunks indexed", count)
-    except Exception:
-        logger.exception("Ingestion failed on startup")
     yield
 
 
 app = FastAPI(title="RAG Admin Service", lifespan=lifespan)
-
-
-@app.post("/ingest", response_model=IngestResponse)
-def ingest_endpoint():
-    """Re-read info.md and update the vector database."""
-    try:
-        count = ingest()
-        return IngestResponse(status="ok", chunks_count=count)
-    except Exception as e:
-        logger.exception("Error during ingestion")
-        raise HTTPException(status_code=500, detail=str(e))
+app.include_router(kb_router)

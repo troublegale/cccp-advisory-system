@@ -10,4 +10,9 @@ dependencies = [
     "qdrant-client>=1.12.0",
     "ollama>=0.4.0",
     "pydantic-settings>=2.6.0",
+    "boto3>=1.34",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "alembic>=1.13",
+    "python-multipart>=0.0.9",
 ]

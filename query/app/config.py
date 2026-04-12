@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     embedding_model: str = "bge-m3"
     llm_model: str = "qwen2.5:7b"
-    collection_name: str = "info_chunks"
+    collection_name: str = "kb_active"
     top_k: int = 3
     similarity_threshold: float = 0.3
 
