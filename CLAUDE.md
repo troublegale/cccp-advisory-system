@@ -14,11 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Запуск всей системы (первый запуск: ~5 ГБ скачивание моделей)
 docker compose up --build -d
 
-# Загрузка новой версии базы знаний
+# Загрузка новой версии базы знаний (сразу индексируется в Qdrant)
 curl -X POST http://localhost/api/v1/knowledge-base/versions -F "archive=@knowledge.zip"
 
-# Индексация и активация версии
-curl -X POST http://localhost/api/v1/knowledge-base/versions/1/ingest
+# Активация версии
 curl -X POST http://localhost/api/v1/knowledge-base/versions/1/activate
 
 # Информация об активной версии / скачивание её архива
@@ -39,7 +38,7 @@ docker compose exec admin uv run python scripts/seed_kb_v1.py
 Семь сервисов в Docker Compose:
 
 - **nginx** (порт 80) — единая точка входа, проксирует `/api/v1/knowledge-base/` -> admin, `/ask` -> query.
-- **admin** (внутренний, порт 8001) — управление версиями базы знаний: загрузка, индексация, активация, скачивание. Lifespan-хук создаёт таблицы в PostgreSQL и bucket в MinIO, затем ожидает готовности моделей в Ollama.
+- **admin** (внутренний, порт 8001) — управление версиями базы знаний: загрузка с автоматической индексацией, активация, скачивание, удаление. Lifespan-хук создаёт таблицы в PostgreSQL и bucket в MinIO, затем ожидает готовности моделей в Ollama.
 - **query** (внутренний, порт 8000) — `POST /ask` (вопрос -> RAG-ответ). Включает `EncodingMiddleware` для прозрачной перекодировки non-UTF-8 тел запросов (fallback: windows-1251, cp866, koi8-r, iso-8859-5).
 - **postgres** (порт 5432) — метаданные версий (`kb_versions`, `kb_files`), volume `postgres_data`.
 - **minio** (порты 9000/9001) — S3-совместимое хранилище файлов базы знаний, volume `minio_data`. Консоль: `http://localhost:9001`.
@@ -51,17 +50,16 @@ docker compose exec admin uv run python scripts/seed_kb_v1.py
 ### Version Lifecycle
 
 ```
-Upload (.zip) -> status: uploaded -> POST /ingest -> status: ingested -> POST /activate -> status: active
+Upload (.zip) -> ingested (автоматическая индексация) -> POST /activate -> active
 ```
 
-Каждая версия получает свою коллекцию `kb_v{N}` в Qdrant. Alias `kb_active` указывает на активную коллекцию. Query-сервис запрашивает только alias `kb_active`. Старые коллекции не удаляются (возможен откат).
+При загрузке архива файлы сохраняются в MinIO, затем сразу индексируются в Qdrant (коллекция `kb_v{N}`). Версия переходит в статус `ingested`. После активации alias `kb_active` указывает на коллекцию, query-сервис использует только этот alias. Старые коллекции не удаляются (возможен откат). Активную версию нельзя удалить — сначала нужно активировать другую.
 
 ### Data Flow
 
-1. **Upload** (`admin/app/service.py`): `.zip`-архив -> извлечение `.md` файлов -> загрузка в MinIO (`versions/v{N}/`) -> метаданные в PostgreSQL.
-2. **Ingestion** (`admin/app/service.py`): файлы из MinIO -> чанки (RecursiveCharacterTextSplitter, 300 chars, overlap 100) -> embeddings через BGE-M3 -> коллекция `kb_v{N}` в Qdrant.
-3. **Activation** (`admin/app/service.py`): alias `kb_active` -> `kb_v{N}`, предыдущая активная версия переводится в `ingested`.
-4. **Retrieval** (`query/app/retrieval.py`): вопрос -> embedding -> поиск top-3 в `kb_active` (cosine, threshold 0.3) -> контекст + русскоязычный системный промпт (hardcoded в `SYSTEM_PROMPT`) -> Qwen 2.5 7B -> ответ.
+1. **Upload + Ingest** (`admin/app/service.py`): `.zip`-архив -> извлечение `.md` файлов -> MinIO (`versions/v{N}/`) -> метаданные в PostgreSQL -> чанки (RecursiveCharacterTextSplitter, 300 chars, overlap 100) -> embeddings через BGE-M3 -> коллекция `kb_v{N}` в Qdrant.
+2. **Activation** (`admin/app/service.py`): alias `kb_active` -> `kb_v{N}`, предыдущая активная версия переводится в `ingested`.
+3. **Retrieval** (`query/app/retrieval.py`): вопрос -> embedding -> поиск top-3 в `kb_active` (cosine, threshold 0.3) -> контекст + русскоязычный системный промпт (hardcoded в `SYSTEM_PROMPT`) -> Qwen 2.5 7B -> ответ.
 
 ### Key Design Details
 

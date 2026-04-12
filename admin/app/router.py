@@ -24,7 +24,7 @@ def upload_version(
     comment: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    """Upload a new knowledge base version from a .zip archive."""
+    """Upload a new knowledge base version and immediately ingest it into Qdrant."""
     if not archive.filename or not archive.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="Uploaded file must be a .zip archive")
 
@@ -36,10 +36,12 @@ def upload_version(
 
     svc = KnowledgeBaseService(db)
     try:
-        version = svc.upload_version(content, comment)
+        return svc.upload_version(content, comment)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return version
+    except Exception as e:
+        logger.exception("Upload/ingest failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/versions", response_model=list[KBVersionResponse])
@@ -74,21 +76,6 @@ def download_active_archive(db: Session = Depends(get_db)):
     )
 
 
-@router.get("/versions/latest/archive")
-def download_latest_archive(db: Session = Depends(get_db)):
-    """Download the latest version as a .zip archive."""
-    svc = KnowledgeBaseService(db)
-    version = svc.get_latest_version()
-    if version is None:
-        raise HTTPException(status_code=404, detail="No versions exist")
-    zip_bytes, filename = svc.download_version_archive(version)
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @router.get("/versions/{version_num}/archive")
 def download_version_archive(version_num: int, db: Session = Depends(get_db)):
     """Download a specific version as a .zip archive."""
@@ -104,27 +91,24 @@ def download_version_archive(version_num: int, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/versions/{version_num}/ingest", response_model=KBVersionResponse)
-def ingest_version(version_num: int, db: Session = Depends(get_db)):
-    """Ingest a version: chunk, embed, and store in Qdrant."""
-    svc = KnowledgeBaseService(db)
-    try:
-        return svc.ingest_version(version_num)
-    except LookupError:
-        raise HTTPException(status_code=404, detail=f"Version {version_num} not found")
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except Exception as e:
-        logger.exception("Ingest failed for version %d", version_num)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/versions/{version_num}/activate", response_model=KBVersionResponse)
 def activate_version(version_num: int, db: Session = Depends(get_db)):
     """Activate a version by pointing the kb_active alias to it."""
     svc = KnowledgeBaseService(db)
     try:
         return svc.activate_version(version_num)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=f"Version {version_num} not found")
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.delete("/versions/{version_num}", status_code=204)
+def delete_version(version_num: int, db: Session = Depends(get_db)):
+    """Delete a version and all its files from MinIO, Qdrant, and the database."""
+    svc = KnowledgeBaseService(db)
+    try:
+        svc.delete_version(version_num)
     except LookupError:
         raise HTTPException(status_code=404, detail=f"Version {version_num} not found")
     except ConflictError as e:

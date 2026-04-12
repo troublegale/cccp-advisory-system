@@ -62,16 +62,8 @@ class KnowledgeBaseService:
             .first()
         )
 
-    def get_latest_version(self) -> KBVersion | None:
-        """Get the version with the highest version_num."""
-        return (
-            self.db.query(KBVersion)
-            .order_by(KBVersion.version_num.desc())
-            .first()
-        )
-
     def upload_version(self, archive_bytes: bytes, comment: str | None = None) -> KBVersion:
-        """Upload a new knowledge base version from a zip archive."""
+        """Upload a new version from a zip archive and immediately ingest it into Qdrant."""
         md_files = self._extract_md_files(archive_bytes)
         if not md_files:
             raise ValueError("Archive contains no .md files")
@@ -79,6 +71,7 @@ class KnowledgeBaseService:
         max_num = self.db.query(func.max(KBVersion.version_num)).scalar()
         version_num = (max_num or 0) + 1
         s3_prefix = f"versions/v{version_num}/"
+        collection_name = f"{settings.kb_collection_prefix}{version_num}"
 
         version = KBVersion(
             version_num=version_num,
@@ -90,6 +83,7 @@ class KnowledgeBaseService:
         self.db.add(version)
         self.db.flush()
 
+        # Upload files to MinIO
         for filename, content in md_files.items():
             s3_key = f"{s3_prefix}{filename}"
             self.s3.put_object(
@@ -107,82 +101,28 @@ class KnowledgeBaseService:
 
         self.db.commit()
         self.db.refresh(version)
-        return version
 
-    def ingest_version(self, version_num: int) -> KBVersion:
-        """Ingest a version: read from MinIO, chunk, embed, store in Qdrant."""
-        version = self.get_version(version_num)
-        if version is None:
-            raise LookupError(f"Version {version_num} not found")
-        if version.status != "uploaded":
-            raise ConflictError(
-                f"Version {version_num} has status '{version.status}', expected 'uploaded'"
-            )
-
-        collection_name = f"{settings.kb_collection_prefix}{version_num}"
-
+        # Ingest into Qdrant
         try:
-            # Read files from MinIO and split into chunks
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=settings.chunk_size,
-                chunk_overlap=settings.chunk_overlap,
-            )
-            chunks = []
-            chunk_payloads = []
-            for file in version.files:
-                obj = self.s3.get_object(
-                    Bucket=settings.minio_kb_bucket, Key=file.s3_key
-                )
-                text = obj["Body"].read().decode("utf-8")
-                for chunk in splitter.split_text(text):
-                    chunks.append(chunk)
-                    chunk_payloads.append({"filename": file.filename, "text": chunk})
-
-            # Generate embeddings
-            client = ollama.Client(host=settings.ollama_base_url)
-            response = client.embed(model=settings.embedding_model, input=chunks)
-            embeddings = response.embeddings
-            vector_size = len(embeddings[0])
-
-            # Create Qdrant collection
-            if self.qdrant.collection_exists(collection_name):
-                self.qdrant.delete_collection(collection_name)
-            self.qdrant.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-            )
-
-            points = [
-                PointStruct(id=i, vector=emb, payload=payload)
-                for i, (emb, payload) in enumerate(zip(embeddings, chunk_payloads))
-            ]
-            self.qdrant.upsert(collection_name=collection_name, points=points)
-
-            version.qdrant_collection = collection_name
-            version.status = "ingested"
-            self.db.commit()
-            self.db.refresh(version)
-
-            logger.info(
-                "Ingested version %d: %d chunks into %s",
-                version_num, len(chunks), collection_name,
-            )
-            return version
-
+            self._ingest(version, collection_name)
         except Exception:
             version.status = "failed"
             self.db.commit()
             raise
+
+        return version
 
     def activate_version(self, version_num: int) -> KBVersion:
         """Activate a version by pointing the kb_active alias to its collection."""
         version = self.get_version(version_num)
         if version is None:
             raise LookupError(f"Version {version_num} not found")
-        if version.status != "ingested":
+        if version.status not in ("ingested", "active"):
             raise ConflictError(
                 f"Version {version_num} has status '{version.status}', expected 'ingested'"
             )
+        if version.status == "active":
+            return version
 
         alias = settings.kb_active_alias
         collection_name = version.qdrant_collection
@@ -213,7 +153,6 @@ class KnowledgeBaseService:
                 ]
             )
 
-        # Update statuses in DB
         self.db.query(KBVersion).filter(KBVersion.status == "active").update(
             {"status": "ingested"}
         )
@@ -227,6 +166,28 @@ class KnowledgeBaseService:
         )
         return version
 
+    def delete_version(self, version_num: int) -> None:
+        """Delete a version: remove Qdrant collection, MinIO files, and DB records."""
+        version = self.get_version(version_num)
+        if version is None:
+            raise LookupError(f"Version {version_num} not found")
+        if version.status == "active":
+            raise ConflictError("Cannot delete the active version. Activate another version first.")
+
+        # Delete Qdrant collection
+        if version.qdrant_collection and self.qdrant.collection_exists(version.qdrant_collection):
+            self.qdrant.delete_collection(version.qdrant_collection)
+
+        # Delete files from MinIO
+        for file in version.files:
+            self.s3.delete_object(Bucket=settings.minio_kb_bucket, Key=file.s3_key)
+
+        # Delete DB records
+        self.db.delete(version)
+        self.db.commit()
+
+        logger.info("Deleted version %d", version_num)
+
     def download_version_archive(self, version: KBVersion) -> tuple[bytes, str]:
         """Download all files of a version as a zip archive."""
         buf = io.BytesIO()
@@ -238,6 +199,51 @@ class KnowledgeBaseService:
                 zf.writestr(file.filename, obj["Body"].read())
         buf.seek(0)
         return buf.getvalue(), f"kb_v{version.version_num}.zip"
+
+    def _ingest(self, version: KBVersion, collection_name: str) -> None:
+        """Chunk, embed, and store version files in Qdrant."""
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        )
+        chunks = []
+        chunk_payloads = []
+        for file in version.files:
+            obj = self.s3.get_object(
+                Bucket=settings.minio_kb_bucket, Key=file.s3_key
+            )
+            text = obj["Body"].read().decode("utf-8")
+            for chunk in splitter.split_text(text):
+                chunks.append(chunk)
+                chunk_payloads.append({"filename": file.filename, "text": chunk})
+
+        client = ollama.Client(host=settings.ollama_base_url)
+        response = client.embed(model=settings.embedding_model, input=chunks)
+        embeddings = response.embeddings
+        vector_size = len(embeddings[0])
+
+        if self.qdrant.collection_exists(collection_name):
+            self.qdrant.delete_collection(collection_name)
+        self.qdrant.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        )
+
+        points = [
+            PointStruct(id=i, vector=emb, payload=payload)
+            for i, (emb, payload) in enumerate(zip(embeddings, chunk_payloads))
+        ]
+        self.qdrant.upsert(collection_name=collection_name, points=points)
+
+        version.qdrant_collection = collection_name
+        version.status = "ingested"
+        self.db.commit()
+        self.db.refresh(version)
+
+        logger.info(
+            "Ingested version %d: %d chunks into %s",
+            version.version_num, len(chunks), collection_name,
+        )
 
     @staticmethod
     def _extract_md_files(archive_bytes: bytes) -> dict[str, bytes]:

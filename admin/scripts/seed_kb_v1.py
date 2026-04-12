@@ -5,7 +5,6 @@ Run once manually inside the admin container:
     uv run python scripts/seed_kb_v1.py
 
 After seeding, call:
-    POST /api/v1/knowledge-base/versions/1/ingest
     POST /api/v1/knowledge-base/versions/1/activate
 """
 
@@ -19,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.db_models import KBFile, KBVersion
+from app.service import KnowledgeBaseService
 from app.storage import ensure_bucket_exists, get_minio_client
 
 
@@ -82,9 +82,14 @@ def seed() -> None:
             print(f"  Uploaded {md_file.name} -> {s3_key}")
 
         db.commit()
-        print(f"Seeded version 1 with {len(md_files)} files.")
-        print("Next steps:")
-        print("  curl -X POST http://localhost/api/v1/knowledge-base/versions/1/ingest")
+        db.refresh(version)
+        print(f"Seeded version 1 with {len(md_files)} files. Ingesting...")
+
+        svc = KnowledgeBaseService(db)
+        collection_name = f"{settings.kb_collection_prefix}1"
+        svc._ingest(version, collection_name)
+        print(f"Ingested into Qdrant collection '{collection_name}'.")
+        print("Next step:")
         print("  curl -X POST http://localhost/api/v1/knowledge-base/versions/1/activate")
 
     finally:
