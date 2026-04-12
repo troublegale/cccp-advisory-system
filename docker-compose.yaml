@@ -1,4 +1,14 @@
 services:
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - admin
+      - query
+
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -17,8 +27,6 @@ services:
 
   admin:
     build: ./admin
-    ports:
-      - "8001:8001"
     volumes:
       - ./admin/knowledge:/app/knowledge:ro
     depends_on:
@@ -31,8 +39,6 @@ services:
 
   query:
     build: ./query
-    ports:
-      - "8000:8000"
     depends_on:
       - qdrant
       - ollama
