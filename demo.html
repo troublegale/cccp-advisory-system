@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demo — Query Widget</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      padding: 60px 40px;
+    }
+    h1 { font-size: 28px; margin-bottom: 12px; }
+    p { color: #64748b; font-size: 16px; line-height: 1.6; max-width: 600px; }
+  </style>
+</head>
+<body>
+  <h1>Демо-страница</h1>
+  <p>
+    Это демонстрационная страница с встроенным виджетом-консультантом.
+    Нажмите на синюю кнопку в правом нижнем углу, чтобы открыть чат
+    и задать вопрос системе.
+  </p>
+
+  <script>
+    (function () {
+      var src = "http://localhost/widget/";
+      fetch(src, { method: "HEAD", mode: "no-cors" })
+        .then(function () {
+          var iframe = document.createElement("iframe");
+          iframe.src = src;
+          iframe.allow = "clipboard-write";
+          iframe.style.cssText =
+            "position:fixed;bottom:0;right:0;width:420px;height:580px;border:none;z-index:9999;";
+          document.body.appendChild(iframe);
+        })
+        .catch(function () {
+          // Widget unavailable — show nothing
+        });
+    })();
+  </script>
+</body>
+</html>
